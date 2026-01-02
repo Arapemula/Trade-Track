@@ -1058,6 +1058,132 @@ h6 {
   }
 }
 
+/* ================================
+   AI Buddy Reaction Bubble
+   ================================ */
+.ai-buddy-bubble {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  max-width: 400px;
+  padding: 1rem 1.25rem;
+  background: linear-gradient(
+    135deg,
+    rgba(20, 184, 166, 0.15) 0%,
+    rgba(20, 184, 166, 0.05) 100%
+  );
+  border: 1px solid var(--accent-teal);
+  border-radius: 20px;
+  box-shadow: 0 10px 40px rgba(20, 184, 166, 0.3);
+  cursor: pointer;
+  z-index: 1000;
+  animation: slideInBubble 0.4s ease;
+}
+
+@keyframes slideInBubble {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.ai-buddy-bubble:hover {
+  transform: scale(1.02);
+}
+
+.ai-buddy-avatar {
+  font-size: 2rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.ai-buddy-content {
+  flex: 1;
+}
+
+.ai-buddy-content p {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+.ai-typing {
+  color: var(--text-muted);
+  font-style: italic;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.ai-typing::after {
+  content: "";
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--accent-teal);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ai-close-btn {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.75rem;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  transition: color 0.2s;
+}
+
+.ai-close-btn:hover {
+  color: var(--text-primary);
+}
+
+/* AI Buddy Daily Summary Button */
+.ai-summary-btn {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.25rem;
+  background: linear-gradient(135deg, var(--accent-teal) 0%, #0d9488 100%);
+  border: none;
+  border-radius: 12px;
+  color: white;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-top: 1rem;
+}
+
+.ai-summary-btn:hover {
+  transform: scale(1.05);
+  box-shadow: 0 10px 30px var(--accent-teal-glow);
+}
+
+.ai-summary-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+
 /* Responsive adjustments */
 @media (max-width: 640px) {
   .container {

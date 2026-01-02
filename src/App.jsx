@@ -1,5 +1,13 @@
 import { useState, useEffect, useCallback } from "react";
 import "./App.css";
+import RegretPage from "./components/RegretPage";
+import {
+  hasApiKey,
+  getTradeReaction,
+  getDailySummary,
+  getLockMessage,
+  getRandomPopUp,
+} from "./services/aiCategorizer";
 
 // Constants
 const DAYS = ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu"];
@@ -86,6 +94,12 @@ function App() {
   });
   const [newNote, setNewNote] = useState("");
   const [showNotes, setShowNotes] = useState(true);
+  const [currentPage, setCurrentPage] = useState("journal");
+
+  // AI Buddy state
+  const [aiReaction, setAiReaction] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [showAiBubble, setShowAiBubble] = useState(false);
 
   // Current day/week info
   const currentDayIdx = getCurrentDayIndex();
@@ -144,6 +158,61 @@ function App() {
     const interval = setInterval(checkLocks, 60000); // Check every minute
     return () => clearInterval(interval);
   }, [lockedDays]);
+
+  // Random AI pop-up timer
+  useEffect(() => {
+    // Only run on journal page and not when locked
+    if (currentPage !== "journal") return;
+
+    // Get current trading context
+    const todayTradesData = trades[currentWeekIdx]?.[currentDayIdx] || [];
+    const dayTotal = calculateDayTotal(currentWeekIdx, currentDayIdx);
+    const lossCount = countLosses(currentWeekIdx, currentDayIdx);
+
+    // Random interval between 45-90 seconds
+    const getRandomInterval = () => Math.floor(Math.random() * 45000) + 45000;
+
+    const triggerRandomPopUp = () => {
+      // Don't show if bubble already visible or loading
+      if (showAiBubble || aiLoading) return;
+
+      // Get context-aware message
+      const message = getRandomPopUp(todayTradesData, dayTotal, lossCount);
+      setAiReaction(message);
+      setShowAiBubble(true);
+
+      // Auto-hide after 8 seconds
+      setTimeout(() => {
+        setShowAiBubble(false);
+      }, 8000);
+    };
+
+    // Initial delay before first popup (15-30 seconds after load)
+    const initialDelay = Math.floor(Math.random() * 15000) + 15000;
+    const initialTimer = setTimeout(() => {
+      triggerRandomPopUp();
+    }, initialDelay);
+
+    // Recurring random popups
+    const interval = setInterval(() => {
+      // 30% chance to show popup at each interval
+      if (Math.random() < 0.3) {
+        triggerRandomPopUp();
+      }
+    }, getRandomInterval());
+
+    return () => {
+      clearTimeout(initialTimer);
+      clearInterval(interval);
+    };
+  }, [
+    currentPage,
+    trades,
+    currentWeekIdx,
+    currentDayIdx,
+    showAiBubble,
+    aiLoading,
+  ]);
 
   // Add toast notification
   const addToast = useCallback((message, type = "success") => {
@@ -246,6 +315,36 @@ function App() {
 
     newTrades[weekIdx][dayIdx][rowIdx][field] = value;
     setTrades(newTrades);
+
+    // Trigger AI reaction for profit (always triggers, uses fallback if no API)
+    if (field === "type" && value === "profit") {
+      const amount = newTrades[weekIdx][dayIdx][rowIdx].amount;
+      if (amount) {
+        triggerAiReaction("profit", amount);
+      }
+    }
+  };
+
+  // Trigger AI reaction (always works - uses fallback if no API)
+  const triggerAiReaction = async (type, amount, reason = "") => {
+    setAiLoading(true);
+    setShowAiBubble(true);
+
+    try {
+      const reaction = await getTradeReaction(type, amount, reason);
+      if (reaction) {
+        setAiReaction(reaction);
+      }
+    } catch (error) {
+      console.error("AI reaction error:", error);
+    } finally {
+      setAiLoading(false);
+    }
+
+    // Auto-hide after 10 seconds
+    setTimeout(() => {
+      setShowAiBubble(false);
+    }, 10000);
   };
 
   // Confirm loss with reason
@@ -313,6 +412,10 @@ function App() {
     setShowLossReasonModal(false);
     setPendingLossData(null);
     addToast("Loss tercatat dengan alasan.", "warning");
+
+    // Trigger AI reaction for loss (always works)
+    const tradeAmount = newTrades[weekIdx][dayIdx][rowIdx].amount;
+    triggerAiReaction("loss", tradeAmount, lossReasonInput.trim());
   };
 
   // Cancel loss selection
@@ -516,6 +619,21 @@ function App() {
         </div>
       )}
 
+      {/* AI Buddy Reaction Bubble */}
+      {showAiBubble && (
+        <div className="ai-buddy-bubble" onClick={() => setShowAiBubble(false)}>
+          <div className="ai-buddy-avatar">🤖</div>
+          <div className="ai-buddy-content">
+            {aiLoading ? (
+              <span className="ai-typing">AI lagi mikir...</span>
+            ) : (
+              <p>{aiReaction}</p>
+            )}
+          </div>
+          <button className="ai-close-btn">✕</button>
+        </div>
+      )}
+
       {/* Promise Modal - After Yesterday Lock */}
       {showPromiseModal && (
         <div className="lock-overlay">
@@ -608,298 +726,372 @@ function App() {
         </div>
       )}
 
-      {/* Header */}
-      <header className="header">
-        <h1>📊 Trading Journal</h1>
-        <p>Lacak profit & loss trading kamu dengan bijak</p>
-      </header>
+      {currentPage === "journal" ? (
+        <>
+          {/* Header */}
+          <header className="header">
+            <h1>📊 Trading Journal</h1>
+            <p>Lacak profit & loss trading kamu dengan bijak</p>
+            <button
+              className="regret-nav-btn"
+              onClick={() => setCurrentPage("regret")}
+              style={{
+                marginTop: "1rem",
+                padding: "0.5rem 1rem",
+                borderRadius: "20px",
+                border: "1px solid var(--loss-red)",
+                background: "rgba(239, 68, 68, 0.1)",
+                color: "var(--loss-red)",
+                cursor: "pointer",
+                fontWeight: "600",
+                transition: "all 0.2s",
+              }}
+              onMouseOver={(e) =>
+                (e.target.style.background = "rgba(239, 68, 68, 0.2)")
+              }
+              onMouseOut={(e) =>
+                (e.target.style.background = "rgba(239, 68, 68, 0.1)")
+              }
+            >
+              💀 Tembok Penyesalan
+            </button>
+          </header>
 
-      {/* Learning Notes Panel - Fixed Top Right */}
-      <div className={`notes-panel ${showNotes ? "open" : "collapsed"}`}>
-        <div className="notes-header" onClick={() => setShowNotes(!showNotes)}>
-          <h3>📝 Catatan Pembelajaran</h3>
-          <span className="notes-toggle">{showNotes ? "−" : "+"}</span>
-        </div>
+          {/* Learning Notes Panel - Fixed Top Right */}
+          <div className={`notes-panel ${showNotes ? "open" : "collapsed"}`}>
+            <div
+              className="notes-header"
+              onClick={() => setShowNotes(!showNotes)}
+            >
+              <h3>📝 Catatan Pembelajaran</h3>
+              <span className="notes-toggle">{showNotes ? "−" : "+"}</span>
+            </div>
 
-        {showNotes && (
-          <div className="notes-content">
-            <div className="notes-input-wrapper">
-              <input
-                type="text"
-                className="notes-input"
-                placeholder="Tulis pelajaran hari ini..."
-                value={newNote}
-                onChange={(e) => setNewNote(e.target.value)}
-                onKeyPress={(e) => e.key === "Enter" && addNote()}
-              />
-              <button className="notes-add-btn" onClick={addNote}>
-                ➕
+            {showNotes && (
+              <div className="notes-content">
+                <div className="notes-input-wrapper">
+                  <input
+                    type="text"
+                    className="notes-input"
+                    placeholder="Tulis pelajaran hari ini..."
+                    value={newNote}
+                    onChange={(e) => setNewNote(e.target.value)}
+                    onKeyPress={(e) => e.key === "Enter" && addNote()}
+                  />
+                  <button className="notes-add-btn" onClick={addNote}>
+                    ➕
+                  </button>
+                </div>
+
+                <div className="notes-list">
+                  {notes.length === 0 ? (
+                    <p className="notes-empty">Belum ada catatan</p>
+                  ) : (
+                    notes.map((note) => (
+                      <div key={note.id} className="note-item">
+                        <div className="note-content">
+                          <p className="note-text">{note.text}</p>
+                          <span className="note-date">{note.date}</span>
+                        </div>
+                        <button
+                          className="note-delete"
+                          onClick={() => deleteNote(note.id)}
+                          title="Hapus catatan"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Stats Grid */}
+          <div className="stats-grid">
+            <div className="stat-card profit">
+              <div className="stat-label">Total Profit</div>
+              <div className="stat-value profit">
+                +${stats.totalProfit.toLocaleString()}
+              </div>
+            </div>
+            <div className="stat-card loss">
+              <div className="stat-label">Total Loss</div>
+              <div className="stat-value loss">
+                -${stats.totalLoss.toLocaleString()}
+              </div>
+            </div>
+            <div className="stat-card total">
+              <div className="stat-label">Net Profit/Loss</div>
+              <div
+                className={`stat-value ${
+                  stats.netTotal >= 0 ? "profit" : "loss"
+                }`}
+              >
+                {stats.netTotal >= 0 ? "+" : ""}
+                {stats.netTotal.toLocaleString()}$
+              </div>
+            </div>
+            <div className="stat-card rate">
+              <div className="stat-label">Win Rate</div>
+              <div className="stat-value">{stats.winRate}%</div>
+            </div>
+          </div>
+
+          {/* Today's Trading Section */}
+          <div className="today-section">
+            <div className="today-header">
+              <div className="today-info">
+                <h2>
+                  📅 {DAYS[currentDayIdx]}, {WEEKS[currentWeekIdx]}
+                </h2>
+                <p className="today-subtitle">
+                  {todayLocked ? (
+                    <span className="status-locked">
+                      🔒 Terkunci - 2x Loss tercapai
+                    </span>
+                  ) : (
+                    <span className="status-active">
+                      ✅ Aktif - Loss: {todayLossCount}/{MAX_LOSSES_PER_DAY}
+                    </span>
+                  )}
+                </p>
+              </div>
+              <button
+                className="add-trade-btn"
+                onClick={addNewTrade}
+                disabled={todayLocked}
+              >
+                ➕ Tambah Trade
               </button>
             </div>
 
-            <div className="notes-list">
-              {notes.length === 0 ? (
-                <p className="notes-empty">Belum ada catatan</p>
+            {/* Today's Trades List */}
+            <div className="trades-list">
+              {todayTrades.length === 0 ? (
+                <div className="empty-trades">
+                  <p>Belum ada trade hari ini</p>
+                  <p className="empty-hint">
+                    Klik "Tambah Trade" untuk memulai
+                  </p>
+                </div>
               ) : (
-                notes.map((note) => (
-                  <div key={note.id} className="note-item">
-                    <div className="note-content">
-                      <p className="note-text">{note.text}</p>
-                      <span className="note-date">{note.date}</span>
+                todayTrades.map((trade, idx) => (
+                  <div
+                    key={trade.id || idx}
+                    className={`trade-card ${trade.type}`}
+                  >
+                    <div className="trade-number">#{idx + 1}</div>
+                    <div className="trade-inputs">
+                      <div className="amount-wrapper">
+                        <span className="currency">$</span>
+                        <input
+                          type="number"
+                          className="amount-input"
+                          placeholder="0.00"
+                          value={trade.amount}
+                          onChange={(e) =>
+                            handleTradeChange(
+                              currentWeekIdx,
+                              currentDayIdx,
+                              idx,
+                              "amount",
+                              e.target.value
+                            )
+                          }
+                          disabled={todayLocked}
+                          min="0"
+                          step="0.01"
+                        />
+                      </div>
+                      <select
+                        className={`type-select ${trade.type}`}
+                        value={trade.type}
+                        onChange={(e) =>
+                          handleTradeChange(
+                            currentWeekIdx,
+                            currentDayIdx,
+                            idx,
+                            "type",
+                            e.target.value
+                          )
+                        }
+                        disabled={todayLocked || !trade.amount}
+                      >
+                        <option value="">-- Pilih --</option>
+                        <option value="profit">✅ Profit</option>
+                        <option value="loss">❌ Loss</option>
+                      </select>
                     </div>
                     <button
-                      className="note-delete"
-                      onClick={() => deleteNote(note.id)}
-                      title="Hapus catatan"
+                      className="delete-btn"
+                      onClick={() =>
+                        deleteTrade(currentWeekIdx, currentDayIdx, idx)
+                      }
+                      disabled={todayLocked}
+                      title="Hapus trade"
                     >
-                      ✕
+                      🗑️
                     </button>
                   </div>
                 ))
               )}
             </div>
-          </div>
-        )}
-      </div>
 
-      {/* Stats Grid */}
-      <div className="stats-grid">
-        <div className="stat-card profit">
-          <div className="stat-label">Total Profit</div>
-          <div className="stat-value profit">
-            +${stats.totalProfit.toLocaleString()}
-          </div>
-        </div>
-        <div className="stat-card loss">
-          <div className="stat-label">Total Loss</div>
-          <div className="stat-value loss">
-            -${stats.totalLoss.toLocaleString()}
-          </div>
-        </div>
-        <div className="stat-card total">
-          <div className="stat-label">Net Profit/Loss</div>
-          <div
-            className={`stat-value ${stats.netTotal >= 0 ? "profit" : "loss"}`}
-          >
-            {stats.netTotal >= 0 ? "+" : ""}
-            {stats.netTotal.toLocaleString()}$
-          </div>
-        </div>
-        <div className="stat-card rate">
-          <div className="stat-label">Win Rate</div>
-          <div className="stat-value">{stats.winRate}%</div>
-        </div>
-      </div>
-
-      {/* Today's Trading Section */}
-      <div className="today-section">
-        <div className="today-header">
-          <div className="today-info">
-            <h2>
-              📅 {DAYS[currentDayIdx]}, {WEEKS[currentWeekIdx]}
-            </h2>
-            <p className="today-subtitle">
-              {todayLocked ? (
-                <span className="status-locked">
-                  🔒 Terkunci - 2x Loss tercapai
-                </span>
-              ) : (
-                <span className="status-active">
-                  ✅ Aktif - Loss: {todayLossCount}/{MAX_LOSSES_PER_DAY}
-                </span>
-              )}
-            </p>
-          </div>
-          <button
-            className="add-trade-btn"
-            onClick={addNewTrade}
-            disabled={todayLocked}
-          >
-            ➕ Tambah Trade
-          </button>
-        </div>
-
-        {/* Today's Trades List */}
-        <div className="trades-list">
-          {todayTrades.length === 0 ? (
-            <div className="empty-trades">
-              <p>Belum ada trade hari ini</p>
-              <p className="empty-hint">Klik "Tambah Trade" untuk memulai</p>
-            </div>
-          ) : (
-            todayTrades.map((trade, idx) => (
-              <div key={trade.id || idx} className={`trade-card ${trade.type}`}>
-                <div className="trade-number">#{idx + 1}</div>
-                <div className="trade-inputs">
-                  <div className="amount-wrapper">
-                    <span className="currency">$</span>
-                    <input
-                      type="number"
-                      className="amount-input"
-                      placeholder="0.00"
-                      value={trade.amount}
-                      onChange={(e) =>
-                        handleTradeChange(
-                          currentWeekIdx,
-                          currentDayIdx,
-                          idx,
-                          "amount",
-                          e.target.value
-                        )
-                      }
-                      disabled={todayLocked}
-                      min="0"
-                      step="0.01"
-                    />
-                  </div>
-                  <select
-                    className={`type-select ${trade.type}`}
-                    value={trade.type}
-                    onChange={(e) =>
-                      handleTradeChange(
-                        currentWeekIdx,
-                        currentDayIdx,
-                        idx,
-                        "type",
-                        e.target.value
-                      )
-                    }
-                    disabled={todayLocked || !trade.amount}
-                  >
-                    <option value="">-- Pilih --</option>
-                    <option value="profit">✅ Profit</option>
-                    <option value="loss">❌ Loss</option>
-                  </select>
-                </div>
-                <button
-                  className="delete-btn"
-                  onClick={() =>
-                    deleteTrade(currentWeekIdx, currentDayIdx, idx)
-                  }
-                  disabled={todayLocked}
-                  title="Hapus trade"
-                >
-                  🗑️
-                </button>
-              </div>
-            ))
-          )}
-        </div>
-
-        {/* Today's Total */}
-        {todayTrades.length > 0 && (
-          <div className="today-total">
-            <span>Total Hari Ini:</span>
-            <span
-              className={`total-value ${
-                calculateDayTotal(currentWeekIdx, currentDayIdx) >= 0
-                  ? "profit"
-                  : "loss"
-              }`}
-            >
-              {calculateDayTotal(currentWeekIdx, currentDayIdx) >= 0 ? "+" : ""}
-              $
-              {calculateDayTotal(
-                currentWeekIdx,
-                currentDayIdx
-              ).toLocaleString()}
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* Weekly History */}
-      <div className="history-section">
-        <h2 className="section-title">📈 Riwayat Mingguan</h2>
-
-        {WEEKS.map((weekName, weekIdx) => {
-          const weekTotal = calculateWeekTotal(weekIdx);
-          const hasAnyTrades = DAYS.some(
-            (_, dayIdx) => (trades[weekIdx]?.[dayIdx] || []).length > 0
-          );
-
-          if (!hasAnyTrades && weekIdx !== currentWeekIdx) return null;
-
-          return (
-            <div key={weekIdx} className="week-container">
-              <div className="week-header">
-                <span className="week-title">
-                  {weekName}
-                  {weekIdx === currentWeekIdx && (
-                    <span className="current-badge">Minggu Ini</span>
-                  )}
-                </span>
+            {/* Today's Total */}
+            {todayTrades.length > 0 && (
+              <div className="today-total">
+                <span>Total Hari Ini:</span>
                 <span
-                  className={`week-total ${weekTotal >= 0 ? "profit" : "loss"}`}
+                  className={`total-value ${
+                    calculateDayTotal(currentWeekIdx, currentDayIdx) >= 0
+                      ? "profit"
+                      : "loss"
+                  }`}
                 >
-                  {weekTotal >= 0 ? "+" : ""}${weekTotal.toLocaleString()}
+                  {calculateDayTotal(currentWeekIdx, currentDayIdx) >= 0
+                    ? "+"
+                    : ""}
+                  $
+                  {calculateDayTotal(
+                    currentWeekIdx,
+                    currentDayIdx
+                  ).toLocaleString()}
                 </span>
               </div>
-              <div className="week-days">
-                {DAYS.map((dayName, dayIdx) => {
-                  const dayTrades = trades[weekIdx]?.[dayIdx] || [];
-                  const dayTotal = calculateDayTotal(weekIdx, dayIdx);
-                  const isTodayCell = isToday(weekIdx, dayIdx);
-                  const isLocked = isDayLocked(weekIdx, dayIdx);
+            )}
 
-                  return (
-                    <div
-                      key={dayIdx}
-                      className={`day-card ${isTodayCell ? "today" : ""} ${
-                        isLocked ? "locked" : ""
+            {/* AI Daily Summary Button */}
+            {todayTrades.length > 0 && hasApiKey() && (
+              <button
+                className="ai-summary-btn"
+                onClick={async () => {
+                  setAiLoading(true);
+                  setShowAiBubble(true);
+                  try {
+                    const summary = await getDailySummary(
+                      todayTrades,
+                      calculateDayTotal(currentWeekIdx, currentDayIdx)
+                    );
+                    if (summary) {
+                      setAiReaction(summary);
+                    }
+                  } catch (err) {
+                    console.error(err);
+                  } finally {
+                    setAiLoading(false);
+                  }
+                }}
+                disabled={aiLoading}
+              >
+                🤖 Minta Review AI
+              </button>
+            )}
+          </div>
+
+          {/* Weekly History */}
+          <div className="history-section">
+            <h2 className="section-title">📈 Riwayat Mingguan</h2>
+
+            {WEEKS.map((weekName, weekIdx) => {
+              const weekTotal = calculateWeekTotal(weekIdx);
+              const hasAnyTrades = DAYS.some(
+                (_, dayIdx) => (trades[weekIdx]?.[dayIdx] || []).length > 0
+              );
+
+              if (!hasAnyTrades && weekIdx !== currentWeekIdx) return null;
+
+              return (
+                <div key={weekIdx} className="week-container">
+                  <div className="week-header">
+                    <span className="week-title">
+                      {weekName}
+                      {weekIdx === currentWeekIdx && (
+                        <span className="current-badge">Minggu Ini</span>
+                      )}
+                    </span>
+                    <span
+                      className={`week-total ${
+                        weekTotal >= 0 ? "profit" : "loss"
                       }`}
                     >
-                      <div className="day-name">
-                        {dayName}
-                        {isTodayCell && <span className="today-dot"></span>}
-                        {isLocked && (
-                          <span className="lock-icon-small">🔒</span>
-                        )}
-                      </div>
-                      <div className="day-trades-count">
-                        {dayTrades.length} trade
-                        {dayTrades.length !== 1 ? "s" : ""}
-                      </div>
-                      <div
-                        className={`day-total ${
-                          dayTotal > 0 ? "profit" : dayTotal < 0 ? "loss" : ""
-                        }`}
-                      >
-                        {dayTrades.length > 0 ? (
-                          <>
-                            {dayTotal >= 0 ? "+" : ""}$
-                            {dayTotal.toLocaleString()}
-                          </>
-                        ) : (
-                          <span className="no-data">-</span>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+                      {weekTotal >= 0 ? "+" : ""}${weekTotal.toLocaleString()}
+                    </span>
+                  </div>
+                  <div className="week-days">
+                    {DAYS.map((dayName, dayIdx) => {
+                      const dayTrades = trades[weekIdx]?.[dayIdx] || [];
+                      const dayTotal = calculateDayTotal(weekIdx, dayIdx);
+                      const isTodayCell = isToday(weekIdx, dayIdx);
+                      const isLocked = isDayLocked(weekIdx, dayIdx);
 
-      {/* Actions Bar */}
-      <div className="actions-bar">
-        <button className="action-btn danger" onClick={resetAllData}>
-          🗑️ Reset Semua Data
-        </button>
-      </div>
+                      return (
+                        <div
+                          key={dayIdx}
+                          className={`day-card ${isTodayCell ? "today" : ""} ${
+                            isLocked ? "locked" : ""
+                          }`}
+                        >
+                          <div className="day-name">
+                            {dayName}
+                            {isTodayCell && <span className="today-dot"></span>}
+                            {isLocked && (
+                              <span className="lock-icon-small">🔒</span>
+                            )}
+                          </div>
+                          <div className="day-trades-count">
+                            {dayTrades.length} trade
+                            {dayTrades.length !== 1 ? "s" : ""}
+                          </div>
+                          <div
+                            className={`day-total ${
+                              dayTotal > 0
+                                ? "profit"
+                                : dayTotal < 0
+                                ? "loss"
+                                : ""
+                            }`}
+                          >
+                            {dayTrades.length > 0 ? (
+                              <>
+                                {dayTotal >= 0 ? "+" : ""}$
+                                {dayTotal.toLocaleString()}
+                              </>
+                            ) : (
+                              <span className="no-data">-</span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
 
-      {/* Footer */}
-      <footer className="footer">
-        <p>
-          💡 Tips: Jika sudah loss 2x dalam sehari, istirahat dan evaluasi
-          strategi kamu.
-        </p>
-        <p className="footer-copyright">
-          © 2026 Trading Journal - Trade Wisely! 📈
-        </p>
-      </footer>
+          {/* Actions Bar */}
+          <div className="actions-bar">
+            <button className="action-btn danger" onClick={resetAllData}>
+              🗑️ Reset Semua Data
+            </button>
+          </div>
+
+          {/* Footer */}
+          <footer className="footer">
+            <p>
+              💡 Tips: Jika sudah loss 2x dalam sehari, istirahat dan evaluasi
+              strategi kamu.
+            </p>
+            <p className="footer-copyright">
+              © 2026 Trading Journal - Trade Wisely! 📈
+            </p>
+          </footer>
+        </>
+      ) : (
+        <RegretPage trades={trades} onBack={() => setCurrentPage("journal")} />
+      )}
     </div>
   );
 }
